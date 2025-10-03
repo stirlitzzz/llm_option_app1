@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Strategy MVP",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ok":        { "type": "boolean" },
+    "quantity":  { "type": "integer" },
+    "symbol":    { "type": "string", "pattern": "^[A-Z]{1,10}$" },
+    "maturities":{ "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "strikes":   { "type": "array", "items": { "type": "number" }, "minItems": 1 },
+    "ratio":     { "type": "string", "pattern": "^[0-9]+(x[0-9]+)*$", "default": "1x1" },
+    "structure": {
+      "oneOf": [
+        { "type": "string", "enum": ["collar","rr","cs","ps","straddle","strangle","custom"] },
+        { "type": "object", "additionalProperties": false, "properties": {
+            "cp_string": { "type": "string", "pattern": "^[CPcp]+$" }
+          },
+          "required": ["cp_string"]
+        }
+      ]
+    },
+    "notes":     { "type": "string" }
+  },
+  "required": ["ok","quantity","symbol","maturities","strikes","structure"]
+}

@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/agents_wireup.schema.json",
+  "title": "Agents Wireup Tool Output Schemas",
+  "type": "object",
+  "description": "Root container. Use one of the $refs below as the validation root for a given tool.",
+  "$defs": {
+    "Issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string" },
+        "msg":  { "type": "string" },
+        "severity": { "type": "string", "enum": ["warning", "blocker"] }
+      },
+      "required": ["code", "msg"]
+    },
+
+    "LegSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cp": { "type": "string", "enum": ["P", "C"] },
+        "k":  { "type": "number" }
+      },
+      "required": ["cp", "k"]
+    },
+
+    "Spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "symbol":    { "type": "string" },
+        "year":      { "type": "integer" },
+        "month":     { "type": "integer", "minimum": 1, "maximum": 12 },
+        "size":      { "type": "integer" },
+        "structure": { "type": "string", "enum": ["collar","vertical","calendar","diagonal","custom","strangle","straddle","covered_call","ps","cs","rr"] },
+        "legs":      { "type": "array", "items": { "$ref": "#/$defs/LegSpec" }, "minItems": 1 }
+      },
+      "required": ["symbol","year","month","size","structure","legs"]
+    },
+
+    "IDRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "optionId":   { "type": "string" },
+        "symbol":     { "type": "string" },
+        "cp":         { "type": "string", "enum": ["P","C"] },
+        "expiration": { "type": "string", "format": "date" },
+        "strike":     { "type": "number" }
+      },
+      "required": ["optionId","symbol","cp","expiration","strike"]
+    },
+
+    "QuoteRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "optionId": { "type": "string" },
+        "bid":      { "type": ["number","null"] },
+        "ask":      { "type": ["number","null"] },
+        "iv_bid":   { "type": ["number","null"] },
+        "iv_ask":   { "type": ["number","null"] },
+        "spot":     { "type": ["number","null"] }
+      },
+      "required": ["optionId"]
+    },
+
+    "CurveRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "T": { "type": "number", "minimum": 0 },
+        "r": { "type": "number" }
+      },
+      "required": ["T","r"]
+    },
+
+    "CurvePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CurveRow" },
+          "minItems": 1
+        }
+      },
+      "required": ["rows"]
+    },
+
+    "DivCash": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "date":   { "type": "string", "format": "date" },
+        "amount": { "type": "number" }
+      },
+      "required": ["date","amount"]
+    },
+
+    "DivsForExpiry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expiration": { "type": "string", "format": "date" },
+        "cash": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DivCash" }
+        }
+      },
+      "required": ["expiration","cash"]
+    },
+
+    "PricedRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "optionId":   { "type": "string" },
+        "symbol":     { "type": "string" },
+        "cp":         { "type": "string", "enum": ["P","C"] },
+        "expiration": { "type": "string", "format": "date" },
+        "strike":     { "type": "number" },
+        "theo":       { "type": "number" },
+        "delta":      { "type": ["number","null"] },
+        "gamma":      { "type": ["number","null"] },
+        "vega":       { "type": ["number","null"] },
+        "theta":      { "type": ["number","null"] }
+      },
+      "required": ["optionId","symbol","cp","expiration","strike","theo"]
+    },
+
+    "UIMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cp":          { "type": "string", "enum": ["P","C",""] },
+        "K":           { "type": ["number","null"] },
+        "exp":         { "type": ["string","null"], "format": "date" },
+        "edge_vs_mid": { "type": ["number","null"] }
+      }
+    },
+
+    "UIRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "row": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": ["number","null"] }
+        },
+        "vol_row": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": ["number","null"] }
+        },
+        "meta": { "$ref": "#/$defs/UIMeta" }
+      },
+      "required": ["row","vol_row","meta"]
+    },
+
+    "TranslateStrategyOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok":    { "type": "boolean" },
+        "spec":  { "$ref": "#/$defs/Spec" },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "required": ["ok","spec","issues"]
+    },
+
+    "ResolveSeriesOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok":       { "type": "boolean" },
+        "dataset":  { "type": "array", "items": { "$ref": "#/$defs/IDRow" } },
+        "expiration": { "type": "string", "format": "date" },
+        "issues":   { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "required": ["ok","dataset","expiration","issues"]
+    },
+
+    "LoadQuotesOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok":     { "type": "boolean" },
+        "quotes": { "type": "array", "items": { "$ref": "#/$defs/QuoteRow" } },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "required": ["ok","quotes","issues"]
+    },
+
+    "LoadCurveOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok":    { "type": "boolean" },
+        "curve": { "$ref": "#/$defs/CurvePayload" },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "required": ["ok","curve","issues"]
+    },
+
+    "BuildDivsOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok":    { "type": "boolean" },
+        "divs":  { "type": "array", "items": { "$ref": "#/$defs/DivsForExpiry" } },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "required": ["ok","divs","issues"]
+    },
+
+    "PriceWithQLOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok":     { "type": "boolean" },
+        "priced": { "type": "array", "items": { "$ref": "#/$defs/PricedRow" } },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "required": ["ok","priced","issues"]
+    },
+
+    "PresentRowsOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok":   { "type": "boolean" },
+        "ui":   { "type": "array", "items": { "$ref": "#/$defs/UIRow" } },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "required": ["ok","ui","issues"]
+    }
+  },
+
+  "anyOf": [
+    { "$ref": "#/$defs/TranslateStrategyOut" },
+    { "$ref": "#/$defs/ResolveSeriesOut" },
+    { "$ref": "#/$defs/LoadQuotesOut" },
+    { "$ref": "#/$defs/LoadCurveOut" },
+    { "$ref": "#/$defs/BuildDivsOut" },
+    { "$ref": "#/$defs/PriceWithQLOut" },
+    { "$ref": "#/$defs/PresentRowsOut" }
+  ]
+}
