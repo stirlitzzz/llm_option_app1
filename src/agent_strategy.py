@@ -3,7 +3,11 @@ from agents import Agent
 from tools_bus import bus_put
 from agents_wireup import translate_strategy
 from tools_parse import parse_strategy_python
+from strategy_fast_parse import parse_strategy_mvp
 import json
+
+from agents import function_tool
+from tracing import trace_tool
 
 strategy_agent = Agent(
     name="Strategy-Translator",
@@ -18,3 +22,6 @@ strategy_agent = Agent(
     ),
     tools=[parse_strategy_python, bus_put],
 )
+
+
+

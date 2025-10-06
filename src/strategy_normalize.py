@@ -152,6 +152,43 @@ def default_sides(structure: Any, cps: List[str], strikes: List[float], quantity
     # custom / cp_string: leave AUTO
     return ["AUTO"]*n
 
+
+
+def set_monthly_expiries_to_third_friday(
+    legs: List[Dict[str, Any]],
+    *,
+    preserve_exact_dates: bool = True,
+    holiday_adjust: bool = False,
+    holiday_is_friday: Optional[callable] = None,
+) -> None:
+    """
+    Mutates each leg in-place:
+      - if leg['expiry']['iso'] is missing (or preserve_exact_dates=False),
+        fill it with the 3rd Friday ISO for (year, month).
+      - optional 'holiday_adjust': if the 3rd Friday is a holiday/closed, move to Thursday.
+        Provide 'holiday_is_friday(d: date) -> bool' to flag those dates.
+
+    legs[i]['expiry'] must have {'year': int, 'month': int, 'iso': str|None}.
+    """
+    for leg in legs:
+        exp = leg.get("expiry") or {}
+        y, m, iso = exp.get("year"), exp.get("month"), exp.get("iso")
+        if not y or not m:
+            continue  # nothing to do
+
+        if iso and preserve_exact_dates:
+            continue  # user already gave an exact date; leave it
+
+        d = third_friday(y, m)
+
+        # Optional: holiday adjustment (simple rule)
+        if holiday_adjust and callable(holiday_is_friday) and holiday_is_friday(d):
+            d = d - timedelta(days=1)  # move to Thursday
+
+        exp["iso"] = d.isoformat()
+        leg["expiry"] = exp
+
+
 def build_legs(
     *,
     quantity: int,
@@ -211,6 +248,8 @@ def build_legs(
             "qty": int(leg_qty_signed),
             "expiry": exp_list[i]
         })
-
+        print(f"leg: {legs[-1]}")
+    set_monthly_expiries_to_third_friday(legs, holiday_adjust=True, holiday_is_friday=None)
+    print(f"legs: {legs}")
     notes = ""
     return {"legs": legs, "issues": issues, "notes": notes}

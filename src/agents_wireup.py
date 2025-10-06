@@ -134,14 +134,16 @@ def resolve_series(spec: Spec) -> ResolveSeriesOut:
     symbol = spec["symbol"].upper()
     year   = int(spec["year"])
     month  = int(spec["month"])
-    exp    = f"{year}-{month:02d}-17"  # demo: “monthly” placeholder
+    exp=spec["legs"][0]["expiry"]
+    #exp    = f"{year}-{month:02d}-17"  # demo: “monthly” placeholder
     ds: List[IDRow] = []
     for leg in spec["legs"]:
         ds.append({
             "optionId": f"{symbol}:{exp}:{leg['cp']}:{int(leg['k'])}",
             "symbol": symbol,
             "cp": leg["cp"],
-            "expiration": exp,
+            "expiration": leg["expiry"],
+            #"expiration": exp,
             "strike": float(leg["k"]),
         })
     return {"ok": True, "dataset": ds, "expiration": exp, "issues": []}
@@ -224,3 +226,5 @@ def present_rows(priced_rows: List[PricedRow], quotes: List[QuoteRow]) -> Presen
             "meta": {"cp": r["cp"], "K": r["strike"], "exp": r["expiration"], "edge_vs_mid": edge},
         })
     return {"ok": True, "ui": ui, "issues": []}
+
+
