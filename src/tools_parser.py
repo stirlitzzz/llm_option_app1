@@ -49,6 +49,7 @@ def normalize_and_store_legs_impl(key: str, ref_year: int, ref_month: int, ref_d
     This keeps LLM entirely out of the loop for normalization.
     """
     spec_wrap = BUS.get(topic="spec", key=key)
+    #print(f"spec_wrap: {spec_wrap}")
     if not spec_wrap or "payload" not in spec_wrap:
         return {"ok": False, "issues":[{"code":"NO_SPEC","msg":f"spec:{key} not found"}]}
 
@@ -64,9 +65,12 @@ def normalize_and_store_legs_impl(key: str, ref_year: int, ref_month: int, ref_d
         structure=mvp["structure"],
         ref_date=ref_date
     )
-    _bus_put_json("legs", key, legs_blob, producer="parser_py")
+    mvp["legs"] = legs_blob
+    spec_wrap["payload"] = mvp
+    #_bus_put_json("spec", key, spec_wrap, producer="parser_py")
+    _bus_put_json("legs", key, mvp, producer="parser_py")
 
-    return {"ok": True, key:key,"issues": legs_blob.get("issues", [])}
+    return {"ok": True, "key":key,"issues": legs_blob.get("issues", [])}
 
 
 @function_tool

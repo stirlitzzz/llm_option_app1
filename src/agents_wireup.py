@@ -131,6 +131,8 @@ def translate_strategy(text: str) -> TranslateStrategyOut:
 @function_tool
 @trace_tool("resolve_series")
 def resolve_series(spec: Spec) -> ResolveSeriesOut:
+    print(f"agents_wireup.py: resolve_series: spec: {spec}")
+    print(f"agents_wireup.py: resolve_series: spec['legs']: {spec['legs']}")
     symbol = spec["symbol"].upper()
     year   = int(spec["year"])
     month  = int(spec["month"])
@@ -142,10 +144,11 @@ def resolve_series(spec: Spec) -> ResolveSeriesOut:
             "optionId": f"{symbol}:{exp}:{leg['cp']}:{int(leg['k'])}",
             "symbol": symbol,
             "cp": leg["cp"],
-            "expiration": leg["expiry"],
+            "expiration": leg["expiry"]["iso"],
             #"expiration": exp,
             "strike": float(leg["k"]),
         })
+    print(f"agents_wireup.py: resolve_series: ds: {ds}")
     return {"ok": True, "dataset": ds, "expiration": exp, "issues": []}
 
 # ---------- 3) Quotes/IV Loader (stub) ----------

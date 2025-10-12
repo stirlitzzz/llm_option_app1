@@ -248,8 +248,9 @@ def build_legs(
             "qty": int(leg_qty_signed),
             "expiry": exp_list[i]
         })
-        print(f"leg: {legs[-1]}")
+        #print(f"leg: {legs[-1]}")
     set_monthly_expiries_to_third_friday(legs, holiday_adjust=True, holiday_is_friday=None)
-    print(f"legs: {legs}")
+
+    #print(f"legs: {legs}")
     notes = ""
     return {"legs": legs, "issues": issues, "notes": notes}
