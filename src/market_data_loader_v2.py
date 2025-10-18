@@ -117,6 +117,75 @@ async def fetch_polygon_agg(
         df.set_index("timestamp", inplace=True)
     return df
 
+async def fetch_polygon_dividends(
+    ticker: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 1000,
+    client: Any | None = None,
+) -> pd.DataFrame:
+    """Fetch dividend history for a ticker from Polygon.
+
+    If a Polygon SDK `client` (e.g., `polygon.RESTClient`) is provided, uses it.
+    Otherwise falls back to a direct HTTPS call using `POLYGON_API_KEY`.
+
+    Returns a tidy DataFrame sorted by `ex_dividend_date`.
+    """
+    cols = [
+        "id",
+        "cash_amount",
+        "currency",
+        "declaration_date",
+        "dividend_type",
+        "ex_dividend_date",
+        "frequency",
+        "pay_date",
+        "record_date",
+        "ticker",
+    ]
+
+    if client is not None:
+        kwargs = dict(ticker=ticker, order="asc", sort="ex_dividend_date", limit=limit)
+        if start:
+            kwargs["ex_dividend_date_gte"] = start
+        if end:
+            kwargs["ex_dividend_date_lte"] = end
+        try:
+            rows = [d for d in client.list_dividends(**kwargs)]
+            df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=cols)
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Polygon SDK list_dividends failed: {e}")
+    else:
+        api_key = _env("AWS_SECRET")
+        url = "https://api.polygon.io/v3/reference/dividends"
+        params = {
+            "ticker": ticker,
+            "order": "asc",
+            "sort": "ex_dividend_date",
+            "limit": limit,
+            "apiKey": api_key,
+        }
+        if start:
+            # v3 style filters use dotted field names
+            params["ex_dividend_date.gte"] = start
+        if end:
+            params["ex_dividend_date.lte"] = end
+        data = await _get_json(url, params=params)
+        results = data.get("results", [])
+        df = pd.DataFrame(results) if results else pd.DataFrame(columns=cols)
+
+    # Normalize types
+    for col in ["ex_dividend_date", "pay_date", "declaration_date", "record_date"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce").dt.tz_localize(None)
+    if "cash_amount" in df.columns:
+        df["cash_amount"] = pd.to_numeric(df["cash_amount"], errors="coerce").astype(float)
+
+    if not df.empty and "ex_dividend_date" in df.columns:
+        df = df.sort_values("ex_dividend_date").reset_index(drop=True)
+
+    # Return with consistent columns if possible
+    return df[cols] if set(cols).issubset(df.columns) else df
 
 # ----------------------------
 # iVolatility (generic hook)
@@ -482,6 +551,190 @@ def make_yield_interpolator(curve_df: pd.DataFrame):
 
     return interp
 
+
+# ----------------------------
+# QuantLib helpers (dates & dividends)
+# ----------------------------
+
+try:
+    import QuantLib as ql  # type: ignore
+    _HAVE_QL = True
+except Exception:  # pragma: no cover
+    ql = None
+    _HAVE_QL = False
+
+
+def _ensure_ql_import():
+    if not _HAVE_QL:
+        raise ImportError("QuantLib not installed. `pip install QuantLib`")
+
+
+def _to_ql_date(ts) -> "ql.Date":
+    _ensure_ql_import()
+    if isinstance(ts, pd.Timestamp):
+        dt = ts.to_pydatetime().date()
+    else:
+        dt = pd.to_datetime(ts).to_pydatetime().date()
+    return ql.Date(dt.day, dt.month, dt.year)
+
+
+def _calendar_by_name(name: str | None) -> "ql.Calendar":
+    _ensure_ql_import()
+    if not name:
+        return ql.NullCalendar()
+    n = name.lower().strip()
+    if n in {"target", "eur"}:
+        return ql.TARGET()
+    if n in {"us", "usa", "unitedstates", "nyse"}:
+        return ql.UnitedStates()
+    if n in {"uk", "unitedkingdom"}:
+        return ql.UnitedKingdom()
+    # Fallback
+    return ql.NullCalendar()
+
+
+def _convention_by_name(name: str | None) -> "ql.BusinessDayConvention":
+    _ensure_ql_import()
+    m = {
+        None: ql.Following,
+        "following": ql.Following,
+        "modifiedfollowing": ql.ModifiedFollowing,
+        "preceding": ql.Preceding,
+        "modifiedpreceding": ql.ModifiedPreceding,
+        "unadjusted": ql.Unadjusted,
+    }
+    key = None if name is None else name.lower().replace("_", "")
+    return m.get(key, ql.Following)
+
+
+def to_ql_dates(
+    dates_like, *, calendar: str | None = None, adjust: bool = False, convention: str | None = "Following",
+) -> list:
+    """Convert an iterable of date-like values to a list[ql.Date].
+
+    Parameters
+    ----------
+    dates_like : Iterable of strings / datetime / pandas Timestamps
+    calendar : Optional calendar name ("TARGET", "UnitedStates", "Null") used when `adjust=True`.
+    adjust : If True, business-day adjust each date using the given calendar & convention.
+    convention : Business-day convention to use when `adjust=True`.
+    """
+    _ensure_ql_import()
+    qds = [_to_ql_date(d) for d in dates_like]
+    if adjust:
+        cal = _calendar_by_name(calendar)
+        conv = _convention_by_name(convention)
+        qds = [cal.adjust(d, conv) for d in qds]
+    # de-dup & sort by serial number
+    seen = set()
+    uniq = []
+    for d in qds:
+        sn = d.serialNumber()
+        if sn not in seen:
+            seen.add(sn)
+            uniq.append(d)
+    uniq.sort(key=lambda d: d.serialNumber())
+    return uniq
+
+
+def to_ql_fixed_dividends(
+    df: pd.DataFrame,
+    *,
+    date_col: str = "ex_dividend_date",
+    amount_col: str = "cash_amount",
+    calendar: str | None = None,
+    adjust: bool = False,
+    convention: str | None = "Following",
+) -> list:
+    """Return a QuantLib DividendSchedule from a DataFrame (list[ql.FixedDividend])."""
+    _ensure_ql_import()
+    dates = to_ql_dates(df.dropna(subset=[date_col])[date_col], calendar=calendar, adjust=adjust, convention=convention)
+    amounts = [float(x) for x in df.loc[df[date_col].notna(), amount_col].tolist()]
+    # align lengths safely (skip if mismatch after roll/dup removal)
+    n = min(len(dates), len(amounts))
+    return [ql.FixedDividend(amounts[i], dates[i]) for i in range(n)]
+
+
+# ----------------------------
+# Pricing utilities (clean pipeline)
+# ----------------------------
+from typing import Optional
+
+
+def set_eval_date(trade_date: str | pd.Timestamp):
+    """Set QuantLib evaluation date once (QL has a global Settings state)."""
+    _ensure_ql_import()
+    ts = pd.Timestamp(trade_date)
+    ql.Settings.instance().evaluationDate = ql.Date(ts.day, ts.month, ts.year)
+
+
+def price_resolved_legs(
+    resolved: dict,
+    *,
+    pricer,                             # callable: price(S,K,maturity,cp,vol,dividends)->dict
+    trade_date: str | pd.Timestamp,
+    dividends_sched_tuples: list[tuple],
+    default_vol: Optional[float] = None,
+) -> pd.DataFrame:
+    """Price legs from `collect_market_and_resolve` output in a tidy, robust way.
+
+    - Sets QL evaluation date once (thread-safety: keep one thread for QL).
+    - Skips legs with missing/NaN vol unless `default_vol` is provided.
+    - Adds dollar-scaled risk metrics with clear units.
+    """
+    import numpy as _np
+
+    set_eval_date(trade_date)
+
+    legs = resolved.get("dataset", [])
+    out = []
+
+    for leg in legs:
+        S = leg.get("underlying_price")
+        K = leg.get("strike")
+        cp = str(leg.get("cp", "")).upper()[:1]
+        vol = leg.get("iv")
+        bid = leg.get("bid")
+        ask = leg.get("ask")
+
+        if vol is None or not _np.isfinite(vol):
+            if default_vol is None:
+                continue
+            vol = float(default_vol)
+
+        exp = pd.to_datetime(leg.get("expiration"))
+        maturity = _to_ql_date(exp)
+
+        res = pricer.price(S=S, K=K, maturity=maturity, cp=cp, vol=vol, dividends=dividends_sched_tuples)
+
+        row = {
+            "optionId": leg.get("optionId"),
+            "cp": cp,
+            "expiration": exp.strftime("%Y-%m-%d"),
+            "strike": float(K),
+            "underlying_price": float(S),
+            "iv": float(vol),
+            "bid": float(bid),
+            "ask": float(ask),
+            **res,
+        }
+        out.append(row)
+
+    df = pd.DataFrame(out)
+    if df.empty:
+        return df
+
+    # Clear, unit-aware scalings
+    # - dollar_gamma_1pct: gamma PnL for a 1% move (0.01 * S); uses 0.5 * Γ * (ΔS)^2
+    # - vega_1pt: vega per 1 vol point (QL vega is often per 1.00 = 100 vol pts)
+    if {"gamma", "underlying_price"}.issubset(df.columns):
+        df["dollar_gamma_1pct"] = 0.5 * df["gamma"] * (0.01 * df["underlying_price"]) ** 2
+    if "vega" in df.columns:
+        df["vega_1pt"] = df["vega"] * 0.01
+
+    # Convenience: sorted output
+    df = df.sort_values(["expiration", "cp", "strike"]).reset_index(drop=True)
+    return df
 
 # ----------------------------
 # CLI demo
