@@ -1,0 +1,4 @@
+{"ts": "2025-10-23T21:39:53Z", "step": 1, "legs_diff": {"added": 2, "removed": 0, "modified": 0}, "params_diff": {"underlying": [null, "AAPL"], "valuation_date": [null, "10/17/2025"], "r": [null, 0.0308], "init_vol": [null, 0.275], "mult": [null, 100.0]}, "legs_hash": "3e9eb574f2"}
+{"ts": "2025-10-23T21:40:06Z", "step": 2, "legs_diff": {"added": 0, "removed": 0, "modified": 0}, "params_diff": {}, "legs_hash": "3e9eb574f2"}
+{"ts": "2025-10-28T20:28:01Z", "step": 1, "legs_diff": {"added": 2, "removed": 0, "modified": 0}, "params_diff": {"underlying": [null, "AAPL"], "valuation_date": [null, "10/17/2025"], "r": [null, 0.0308], "init_vol": [null, 0.275], "mult": [null, 100.0]}, "legs_hash": "3e9eb574f2"}
+{"ts": "2025-10-28T21:00:00Z", "step": 2, "legs_diff": {"added": 0, "removed": 0, "modified": 1}, "params_diff": {}, "legs_hash": "9154eaf59b"}

@@ -29,9 +29,9 @@ def apply_ivol_yc(marketData,df_options):
     df_results=df_options.copy()
     #df_results['yc'] = None
     for index, row in df_options.iterrows():
-        period = int(row['Texp'] * 252)
+        period = int(row['texp'] * 252)
         yc = marketData[marketData['period'] == period]['rate'].values[0]/100
-        df_results.at[index, 'Rate'] = yc
+        df_results.at[index, 'rate'] = yc
     return df_results
 
 
@@ -136,16 +136,20 @@ def pick_by_maturity_and_strike(
     need = {"expiration","strike","cp"}
     if not need.issubset(set(cols.keys())):
         raise ValueError("legs_df must have columns Expiration, Strike, CP")
+
+    """
     L = legs_df.rename(columns={
-        cols["expiration"]: "Expiration",
-        cols["strike"]: "Strike",
-        cols["cp"]: "CP"
+        cols["Expiration"]: "expiration",
+        cols["Strike"]: "strike",
+        cols["CP"]: "cp"
     }).copy()
+    """
+    L = legs_df.copy()
 
     # normalize leg fields
-    L["CP"] = L["CP"].astype(str).str.upper().str[0]
-    L["Strike"] = pd.to_numeric(L["Strike"], errors="coerce").astype(float)
-    L["ExpirationISO"] = L["Expiration"].apply(_ensure_iso_date)
+    L["cp"] = L["cp"].astype(str).str.upper().str[0]
+    L["strike"] = pd.to_numeric(L["strike"], errors="coerce").astype(float)
+    L["expirationISO"] = L["expiration"].apply(_ensure_iso_date)
 
     # fast lookup: (exp, cp) -> frame sorted by strike
     by_key = { (e, c): g.sort_values("strike").reset_index(drop=True)
@@ -153,7 +157,7 @@ def pick_by_maturity_and_strike(
 
     issues, rows = [], []
     for i, leg in L.iterrows():
-        exp = leg["ExpirationISO"]; cp = leg["CP"]; k = float(leg["Strike"])
+        exp = leg["expirationISO"]; cp = leg["cp"]; k = float(leg["strike"])
         g = by_key.get((exp, cp))
         if g is None or g.empty:
             issues.append({"code":"NO_EXP_CP","msg":f"{symbol} {cp} @ {exp} not in chain"})

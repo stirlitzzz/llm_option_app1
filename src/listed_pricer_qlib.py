@@ -127,7 +127,7 @@ def _flat_curve(valuation_date: str | ql.Date, r_cont: float,
 def _div_list(dividends_df: pd.DataFrame) -> list[tuple]:
     # returns [(ql.Date, amount), ...] sorted
     out = []
-    for d, a in zip(dividends_df['Date'], dividends_df['Amount']):
+    for d, a in zip(dividends_df['date'], dividends_df['amount']):
         dq = _to_qldate(str(d)) if not isinstance(d, ql.Date) else d
         out.append((dq, float(a)))
     out.sort(key=lambda x: (int(x[0].serialNumber()),))
@@ -150,7 +150,7 @@ def price_table_with_divs_ql(options_df: pd.DataFrame,
                              compute_combo=True):
     """
     Uses QLAmericanPricer.price(...) for each row in options_df.
-    Expects columns: ['Expiration','Strike','Spot','CP','Vol'] (Vol may be '27.5%' or 0.275)
+    Expects columns: ['expiration','strike','spot','cp','vol'] (Vol may be '27.5%' or 0.275)
                      Optional: 'mult'
     Discrete cash dividends provided in dividends_df: columns ['Date','Amount'].
     """
@@ -165,7 +165,7 @@ def price_table_with_divs_ql(options_df: pd.DataFrame,
         if cand in options_df.columns:
             rate_col = cand
             break
-    # cache pricers keyed by rate to avoid rebuilding for every row
+    # cache pricers keyed Rby rate to avoid rebuilding for every row
     pricer_cache: dict[float, "QLAmericanPricer"] = {}
     pricer_cache[default_r] = pricer
     # Normalize dividends to list of (ql.Date, amt)
@@ -174,14 +174,14 @@ def price_table_with_divs_ql(options_df: pd.DataFrame,
     rows = []
     for i, row in options_df.iterrows():
         # Parse row fields
-        S  = float(row['Spot'])
-        K  = float(row['Strike'])
-        cp = str(row['CP']).upper()[0]
-        exp = row['Expiration']
+        S  = float(row['spot'])
+        K  = float(row['strike'])
+        cp = str(row['cp']).upper()[0]
+        exp = row['expiration']
         mat = _to_qldate(str(exp)) if not isinstance(exp, ql.Date) else exp
-        borrow = float(row['Borrow'])
+        borrow = float(row['borrow'])
 
-        vol_raw = row['Vol']
+        vol_raw = row['vol']
         if isinstance(vol_raw, str) and vol_raw.strip().endswith('%'):
             vol = float(vol_raw.strip('%'))/100.0
         else:
@@ -200,20 +200,20 @@ def price_table_with_divs_ql(options_df: pd.DataFrame,
 
         rows.append({
             **row.to_dict(),
-            'Theo': res['theo'],
-            'Delta': res.get('delta'),
-            'Gamma': res.get('gamma'),
-            'Theta': res.get('theta'),
-            'Vega':  res.get('vega')
+            'theo': res['theo'],
+            'delta': res.get('delta'),
+            'gamma': res.get('gamma'),
+            'theta': res.get('theta'),
+            'vega':  res.get('vega')
         })
 
     priced = pd.DataFrame(rows)
 
     if compute_combo:
         # C - P per (Expiration, Strike); assumes both legs exist in table
-        grp_cols = ['Expiration', 'Strike']
+        grp_cols = ['expiration', 'strike']
         # pivot to wide then compute combo
-        wide = priced.pivot_table(index=grp_cols, columns='CP', values='Theo', aggfunc='first')
+        wide = priced.pivot_table(index=grp_cols, columns='cp', values='theo', aggfunc='first')
         wide['Combo_C_minus_P'] = wide.get('C', np.nan) - wide.get('P', np.nan)
         priced = priced.merge(wide[['Combo_C_minus_P']].reset_index(), on=grp_cols, how='left')
 
