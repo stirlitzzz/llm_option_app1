@@ -1,7 +1,9 @@
 import hashlib
 import json
+import os
 import time
 from copy import deepcopy
+from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
@@ -163,5 +165,29 @@ def track_and_update(
     STATE["params_prev"] = deepcopy(params_cur)
     STATE["step"] += 1
     return legs_diff, params_diff, meta
+
+
+# --------- Session helpers (run_id and journal rotation) ---------
+def new_run_id(prefix: str = "sess") -> str:
+    """Return a new run/session id like 'sess-YYYYMMDD-HHMMSS'."""
+    return f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}"
+
+
+def get_default_journal_dir() -> str:
+    """Prefer notebooks/cache if present, else cache/ at repo root."""
+    candidates = ["notebooks/cache", "cache"]
+    for c in candidates:
+        if Path(c).exists():
+            return c
+    # ensure cache exists to avoid write errors
+    Path("cache").mkdir(parents=True, exist_ok=True)
+    return "cache"
+
+
+def get_journal_path(run_id: str, base_dir: Optional[str] = None) -> str:
+    """Build a per-session JSONL path: <base_dir>/journal_<run_id>.jsonl"""
+    base = base_dir or get_default_journal_dir()
+    Path(base).mkdir(parents=True, exist_ok=True)
+    return str(Path(base) / f"journal_{run_id}.jsonl")
 
 
