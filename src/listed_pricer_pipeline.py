@@ -3,6 +3,7 @@ import pandas as pd
 from listed_pricer_data_loader import get_ivol_yc, apply_ivol_yc, fetch_and_pick
 from listed_pricer_qlib import price_table_with_divs_ql
 from listed_pricer_utils import _to_iso_date_key
+from greeks import GreekUnits, standardize_greeks
 
 
 def tag_source(df: pd.DataFrame, prefix: str, keys=("expiration","strike","cp")) -> pd.DataFrame:
@@ -85,10 +86,21 @@ def run_pipeline(pd_val_date: pd.Timestamp,
         validate='one_to_one'
     ).drop(columns=['Exp_key'])
 
-    # 6) Display subset --------------------------------------------------------
+    # 6) Standardize model greeks to per-share, vega per 0.01, theta/day ------
+    units = GreekUnits(
+        per_contract=False,
+        contract_multiplier=100.0,
+        vega_per_vol_point=True,
+        theta_per_day=True,
+        gamma_per_dollar=True
+    )
+    combined = standardize_greeks(combined, units, prefix="mdl_")
+
+    # 7) Display subset --------------------------------------------------------
     cols_show = [
         "expiration","strike","mdl_spot","mdl_cp","mdl_ea","mdl_texp",
-        "mdl_vol","mdl_borrow","mkt_bid","mdl_theo","mkt_ask"
+        "mdl_vol","mdl_borrow","mkt_bid","mdl_theo","mkt_ask",
+        "mdl_delta_std","mdl_gamma_std","mdl_vega_std","mdl_theta_std"
     ]
     cols_show = [c for c in cols_show if c in combined.columns]
     df_show = combined[cols_show].copy()
