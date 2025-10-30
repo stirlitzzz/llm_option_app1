@@ -4,7 +4,8 @@ import pandas as pd
 import asyncio
 import pandas as pd, numpy as np
 from datetime import datetime
-# --- use your existing helpers if you have them; duplicated here for self-containment ---
+
+# --- Optional IVOL SDK (lazy init) -------------------------------------------
 try:
     import ivolatility as ivol  # type: ignore
     _IVOL_SDK = True
@@ -12,38 +13,86 @@ except Exception:
     ivol = None
     _IVOL_SDK = False
 
-dotenv.load_dotenv()
-api_key = os.getenv("IVOL_API_KEY")
-if not api_key:
-    raise RuntimeError("❌ IVOL_API_KEY not found in .env file or environment.")
+_IVOL_READY = False
 
-ivol.setLoginParams(apiKey=api_key)
+def _ensure_ivol_login() -> bool:
+    """Try to initialize IVOL SDK once. Returns True if ready, else False."""
+    global _IVOL_READY
+    if _IVOL_READY:
+        return True
+    if not _IVOL_SDK:
+        return False
+    try:
+        dotenv.load_dotenv()
+        api_key = os.getenv("IVOL_API_KEY")
+        if not api_key:
+            return False
+        ivol.setLoginParams(apiKey=api_key)
+        _IVOL_READY = True
+        return True
+    except Exception:
+        return False
 
 
 def get_ivol_yc(pd_date):
-    getMarketData = ivol.setMethod('/equities/interest-rates')
-    marketData = getMarketData(from_=pd_date.strftime('%Y-%m-%d'), till=pd_date.strftime('%Y-%m-%d'), currency='USD')
-    return marketData
+    """Fetch IVOL interest-rate curve for a date. Falls back to flat curve.
+    Returns a DataFrame with at least ['period','rate'] where period is days and rate is in percent.
+    """
+    if _ensure_ivol_login():
+        try:
+            getMarketData = ivol.setMethod('/equities/interest-rates')
+            marketData = getMarketData(from_=pd_date.strftime('%Y-%m-%d'), till=pd_date.strftime('%Y-%m-%d'), currency='USD')
+            # Ensure expected columns
+            if not marketData.empty and {'period','rate'} <= set(marketData.columns):
+                return marketData
+        except Exception:
+            pass
+    # Fallback: flat curve using DEFAULT_R (in decimal), convert to percent
+    default_r = float(os.getenv("DEFAULT_R", "0.0308"))
+    periods = [7, 14, 30, 60, 90, 180, 252, 504, 756, 1008]
+    return pd.DataFrame({"period": periods, "rate": [default_r * 100.0] * len(periods)})
 
-def apply_ivol_yc(marketData,df_options):
-    df_results=df_options.copy()
-    #df_results['yc'] = None
-    for index, row in df_options.iterrows():
-        period = int(row['texp'] * 252)
-        yc = marketData[marketData['period'] == period]['rate'].values[0]/100
-        df_results.at[index, 'rate'] = yc
-    return df_results
+def apply_ivol_yc(marketData, df_options):
+    """Apply a per-row interest rate using IVOL marketData.
+    - Uses linear interpolation on 'period' if possible, else nearest neighbor.
+    - Falls back to DEFAULT_R if marketData unusable.
+    Sets a decimal 'rate' column in the returned DataFrame.
+    """
+    df_results = df_options.copy()
+    try:
+        md = marketData.copy()
+        if md is None or md.empty or not {'period','rate'} <= set(md.columns):
+            raise ValueError("invalid marketData")
+        md = md[['period','rate']].dropna().copy()
+        md['period'] = pd.to_numeric(md['period'], errors='coerce')
+        md['rate'] = pd.to_numeric(md['rate'], errors='coerce')
+        md = md.dropna().sort_values('period')
+        x = md['period'].values.astype(float)
+        y = md['rate'].values.astype(float)
+        if len(x) == 0:
+            raise ValueError("empty curve after cleaning")
+
+        for index, row in df_options.iterrows():
+            period = float(row.get('texp', 0.0)) * 252.0
+            if len(x) >= 2:
+                # linear interpolation within bounds, clamp outside
+                rate_pct = float(np.interp(period, x, y))
+            else:
+                # single node: use it
+                rate_pct = float(y[0])
+            df_results.at[index, 'rate'] = rate_pct / 100.0
+        return df_results
+    except Exception:
+        default_r = float(os.getenv("DEFAULT_R", "0.0308"))
+        df_results['rate'] = default_r
+        return df_results
 
 
 
 
 def init_ivol_options_client():
-    if not _IVOL_SDK:
-        raise RuntimeError("ivolatility SDK not installed. `pip install ivolatility`")
-    api_key = os.getenv("IVOL_API_KEY")
-    if not api_key:
-        raise RuntimeError("IVOL_API_KEY not found in environment.")
-    ivol.setLoginParams(apiKey=api_key)
+    if not _ensure_ivol_login():
+        raise RuntimeError("ivolatility SDK not available or API key not configured")
     return ivol.setMethod('/equities/eod/stock-opts-by-param')
 
 def _numify(df: pd.DataFrame, col: str, dtype: str = "float64"):
@@ -104,7 +153,11 @@ def fetch_ivol_chain(symbol: str, trade_date: str, getMarketData=None,
                      mny_from: int = -200, mny_to: int = 200) -> pd.DataFrame:
     """Download C & P once and return a single normalized DataFrame."""
     if getMarketData is None:
-        getMarketData = init_ivol_options_client()
+        try:
+            getMarketData = init_ivol_options_client()
+        except Exception:
+            # No SDK available; return empty chain so caller can handle gracefully
+            return pd.DataFrame()
     sym = symbol.upper()
     def _fetch(cp: str):
         return getMarketData(symbol=sym, tradeDate=trade_date,
